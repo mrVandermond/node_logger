@@ -1,0 +1,19 @@
+{
+  "name": "node_logger",
+  "version": "0.0.0",
+  "description": "Simple logger for Node.js",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mrVandermond/node_logger.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mrVandermond/node_logger/issues"
+  },
+  "homepage": "https://github.com/mrVandermond/node_logger#readme"
+}

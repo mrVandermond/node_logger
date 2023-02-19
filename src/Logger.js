@@ -28,9 +28,9 @@ class Logger {
     }
 
     if (hasOptions) {
-      this.#filePath = options.filePath;
-      this.#locale = options.locale;
-      this.#dateTimeFormatPreset = options.dateTimeFormatPreset;
+      this.#locale = options.locale ?? this.#locale;
+      this.#filePath = options.filePath ?? this.#filePath;
+      this.#dateTimeFormatPreset = options.dateTimeFormatPreset ?? this.#dateTimeFormatPreset;
     }
   }
 

@@ -7,6 +7,7 @@ class Logger {
   #filePath = '';
   #fileHandle = null;
   #timeToCloseFile = 1000;
+  #timeTick = 50;
   #scheduledCloseId = null;
   #isProcessOfOpeningFile = false;
   #queue = [];
@@ -38,6 +39,8 @@ class Logger {
       this.#dateTimeFormatPreset = options.dateTimeFormatPreset ?? this.#dateTimeFormatPreset;
       this.#timeToCloseFile = options.timeToCloseFile ?? this.#timeToCloseFile;
     }
+
+    this.#startLogger();
   }
 
   log(message) {
@@ -52,7 +55,7 @@ class Logger {
     }
   }
 
-  async #doLog(logLevel, message) {
+  #doLog(logLevel, message) {
     switch (this.#mode) {
       case MODES.CONSOLE: {
         const colorAccordingToLogLevel = COLORS[logLevel.toUpperCase()];
@@ -64,19 +67,7 @@ class Logger {
         const date = new Date().toLocaleString(this.#locale, this.#dateTimeFormatPreset);
         const messageWithLogLevel = `[${logLevel.toUpperCase()}, ${date}]: ${message} \n`;
 
-        try {
-          if (this.#isProcessOfOpeningFile) {
-            this.#queue.push(messageWithLogLevel);
-
-            return;
-          }
-
-          await this.#openOrKeepHoldFile();
-          await this.#writeToFile(messageWithLogLevel);
-          await this.#flushQueue();
-        } catch (error) {
-          console.error(error);
-        }
+        this.#queue.push(messageWithLogLevel);
         break;
       }
     }
@@ -110,25 +101,39 @@ class Logger {
     this.#scheduledCloseId = setTimeout(async () => {
       if (!this.#fileHandle) return;
 
+      console.log('close file');
+
       await this.#fileHandle.close();
       this.#fileHandle = null;
     }, this.#timeToCloseFile);
-  }
-
-  async #flushQueue() {
-    if (this.#queue.length === 0) return;
-
-    for (const message of this.#queue) {
-      await this.#writeToFile(message);
-    }
-
-    this.#queue = [];
   }
 
   async #writeToFile(message) {
     await this.#fileHandle.appendFile(message, {
       encoding: 'utf-8',
     });
+  }
+
+  #startLogger() {
+    setTimeout(async () => {
+      this.#startLogger();
+
+      if (this.#queue.length === 0) return;
+
+      try {
+        await this.#openOrKeepHoldFile();
+
+        for (let i = 0; i < 50; i++) {
+          const message = this.#queue[i];
+
+          await this.#writeToFile(message);
+        }
+
+        this.#queue.splice(0, 50);
+      } catch (error) {
+        console.error(error);
+      }
+    }, this.#timeTick);
   }
 }
 

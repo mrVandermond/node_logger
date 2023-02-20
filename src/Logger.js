@@ -5,6 +5,11 @@ class Logger {
   #mode = MODES.CONSOLE;
   #console = console;
   #filePath = '';
+  #fileHandle = null;
+  #timeToCloseFile = 1000;
+  #scheduledCloseId = null;
+  #isProcessOfOpeningFile = false;
+  #queue = [];
   #locale = 'ru-RU';
   #dateTimeFormatPreset = {
     day: '2-digit',
@@ -31,22 +36,23 @@ class Logger {
       this.#locale = options.locale ?? this.#locale;
       this.#filePath = options.filePath ?? this.#filePath;
       this.#dateTimeFormatPreset = options.dateTimeFormatPreset ?? this.#dateTimeFormatPreset;
+      this.#timeToCloseFile = options.timeToCloseFile ?? this.#timeToCloseFile;
     }
   }
 
   log(message) {
     if (typeof message === 'string') {
-      this.#chooseSourceAndLog(LOG_LEVELS.INFO, message);
+      this.#doLog(LOG_LEVELS.INFO, message);
 
       return;
     }
 
     if (typeof message === 'object' && !isNull(message)) {
-      this.#chooseSourceAndLog(message.level, message.message);
+      this.#doLog(message.level, message.message);
     }
   }
 
-  async #chooseSourceAndLog(logLevel, message) {
+  async #doLog(logLevel, message) {
     switch (this.#mode) {
       case MODES.CONSOLE: {
         const colorAccordingToLogLevel = COLORS[logLevel.toUpperCase()];
@@ -55,21 +61,74 @@ class Logger {
         break;
       }
       case MODES.FILE: {
-        try {
-          const file = await fs.open(this.#filePath, 'a+');
-          const date = new Date().toLocaleString(this.#locale, this.#dateTimeFormatPreset);
-          const messageWithLogLevel = `[${logLevel.toUpperCase()}, ${date}]: ${message} \n`;
+        const date = new Date().toLocaleString(this.#locale, this.#dateTimeFormatPreset);
+        const messageWithLogLevel = `[${logLevel.toUpperCase()}, ${date}]: ${message} \n`;
 
-          await file.appendFile(messageWithLogLevel, {
-            encoding: 'utf-8',
-          });
-          await file.close();
+        try {
+          if (this.#isProcessOfOpeningFile) {
+            this.#queue.push(messageWithLogLevel);
+
+            return;
+          }
+
+          await this.#openOrKeepHoldFile();
+          await this.#writeToFile(messageWithLogLevel);
+          await this.#flushQueue();
         } catch (error) {
           console.error(error);
         }
         break;
       }
     }
+  }
+
+  async #openOrKeepHoldFile() {
+    if (this.#fileHandle) {
+      await this.#scheduleCloseFile();
+
+      return;
+    }
+
+    try {
+      this.#isProcessOfOpeningFile = true;
+
+      this.#fileHandle = await fs.open(this.#filePath, 'a+');
+
+      this.#isProcessOfOpeningFile = false;
+      this.#scheduleCloseFile();
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  #scheduleCloseFile() {
+    if (this.#scheduledCloseId) {
+      clearTimeout(this.#scheduledCloseId);
+      this.#scheduledCloseId = null;
+    }
+
+    this.#scheduledCloseId = setTimeout(async () => {
+      if (!this.#fileHandle) return;
+
+      await this.#fileHandle.close();
+      this.#fileHandle = null;
+    }, this.#timeToCloseFile);
+  }
+
+  async #flushQueue() {
+    if (this.#queue.length === 0) return;
+
+    for (const message of this.#queue) {
+      await this.#writeToFile(message);
+    }
+
+    this.#queue = [];
+  }
+
+  async #writeToFile(message) {
+    await this.#fileHandle.appendFile(message, {
+      encoding: 'utf-8',
+    });
   }
 }
 

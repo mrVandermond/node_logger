@@ -1,16 +1,12 @@
 const { MODES, isNull, LOG_LEVELS, COLORS } = require('./utils');
-const fs = require('fs/promises');
+const fs = require('fs');
+const path = require('path');
 
 class Logger {
   #mode = MODES.CONSOLE;
   #console = console;
   #filePath = '';
-  #fileHandle = null;
-  #timeToCloseFile = 1000;
-  #timeTick = 50;
-  #scheduledCloseId = null;
-  #isProcessOfOpeningFile = false;
-  #queue = [];
+  #writableStream = null;
   #locale = 'ru-RU';
   #dateTimeFormatPreset = {
     day: '2-digit',
@@ -37,7 +33,6 @@ class Logger {
       this.#locale = options.locale ?? this.#locale;
       this.#filePath = options.filePath ?? this.#filePath;
       this.#dateTimeFormatPreset = options.dateTimeFormatPreset ?? this.#dateTimeFormatPreset;
-      this.#timeToCloseFile = options.timeToCloseFile ?? this.#timeToCloseFile;
     }
 
     this.#startLogger();
@@ -55,7 +50,11 @@ class Logger {
     }
   }
 
-  #doLog(logLevel, message) {
+  end() {
+    this.#writableStream.close();
+  }
+
+  async #doLog(logLevel, message) {
     switch (this.#mode) {
       case MODES.CONSOLE: {
         const colorAccordingToLogLevel = COLORS[logLevel.toUpperCase()];
@@ -67,73 +66,49 @@ class Logger {
         const date = new Date().toLocaleString(this.#locale, this.#dateTimeFormatPreset);
         const messageWithLogLevel = `[${logLevel.toUpperCase()}, ${date}]: ${message} \n`;
 
-        this.#queue.push(messageWithLogLevel);
+        await this.#writeToFile(messageWithLogLevel);
         break;
       }
     }
   }
 
-  async #openOrKeepHoldFile() {
-    if (this.#fileHandle) {
-      await this.#scheduleCloseFile();
+  #writeToFile(message) {
+    return new Promise((res) => {
+      const isReady = this.#writableStream.write(message);
 
-      return;
-    }
+      if (!isReady) {
+        this.#writableStream.once('drain', res);
 
-    try {
-      this.#isProcessOfOpeningFile = true;
+        return;
+      }
 
-      this.#fileHandle = await fs.open(this.#filePath, 'a+');
-
-      this.#isProcessOfOpeningFile = false;
-      this.#scheduleCloseFile();
-    } catch (error) {
-      console.error(error);
-    }
-  }
-
-  #scheduleCloseFile() {
-    if (this.#scheduledCloseId) {
-      clearTimeout(this.#scheduledCloseId);
-      this.#scheduledCloseId = null;
-    }
-
-    this.#scheduledCloseId = setTimeout(async () => {
-      if (!this.#fileHandle) return;
-
-      console.log('close file');
-
-      await this.#fileHandle.close();
-      this.#fileHandle = null;
-    }, this.#timeToCloseFile);
-  }
-
-  async #writeToFile(message) {
-    await this.#fileHandle.appendFile(message, {
-      encoding: 'utf-8',
+      res();
     });
   }
 
-  #startLogger() {
-    setTimeout(async () => {
-      this.#startLogger();
+  async #createStream() {
+    const absolutePath = path.join(__dirname, this.#filePath);
 
-      if (this.#queue.length === 0) return;
+    await fs.promises.access(absolutePath);
 
-      try {
-        await this.#openOrKeepHoldFile();
+    const fileStat = await fs.promises.stat(absolutePath);
+    const isFile = fileStat.isFile();
 
-        for (let i = 0; i < 50; i++) {
-          const message = this.#queue[i];
+    if (!isFile) {
+      throw new Error(`${absolutePath} is not a file`);
+    }
 
-          await this.#writeToFile(message);
-        }
+    this.#writableStream = fs.createWriteStream(this.#filePath, {
+      encoding: 'utf-8',
+      flags: 'a',
+      autoClose: false,
+    });
+  }
 
-        this.#queue.splice(0, 50);
-      } catch (error) {
-        console.error(error);
-      }
-    }, this.#timeTick);
+  async #startLogger() {
+    if (this.#mode === MODES.FILE && !this.#writableStream) {
+      await this.#createStream();
+    }
   }
 }
 
